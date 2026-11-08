@@ -13,8 +13,8 @@ const LEVELS := [
 	{"name": "Corral", "path": "res://src/levels/corral.tscn"},
 ]
 const PLAYERS := [
-	{"tex": "res://assets/players/player1.png", "color": Color(0.93, 0.55, 0.2), "faces_left": false},
-	{"tex": "res://assets/players/player2.png", "color": Color(0.22, 0.72, 0.8), "faces_left": true},
+	{"tex": "res://assets/players/player1.png", "color": Color(0.93, 0.55, 0.2), "faces_left": false, "hand": Vector2(0.92, 0.6)},
+	{"tex": "res://assets/players/player2.png", "color": Color(0.22, 0.72, 0.8), "faces_left": true, "hand": Vector2(0.09, 0.6)},
 ]
 const BONUS_AP := 2
 const DRAIN_AP := 1
@@ -37,6 +37,9 @@ var _turn_penalty := 0
 var _camera: ShakeCamera
 var hud: Hud
 var dice: DiceRoll
+var _log_path: Array = []
+var _log_shots: Array = []
+var _last_color := Color.WHITE
 
 
 func _ready() -> void:
@@ -51,6 +54,7 @@ func _ready() -> void:
 		p.color = def["color"]
 		p.texture = load(def["tex"])
 		p.art_faces_left = def["faces_left"]
+		p.hand_uv = def["hand"]
 		p.board = board
 		board.props.add_child(p)
 		var spawn: Vector2i = board.spawns[i] if i < board.spawns.size() else board.spawns[0]
@@ -59,6 +63,9 @@ func _ready() -> void:
 		p.action_performed.connect(_on_action)
 		p.died.connect(_on_died)
 		p.changed.connect(_update_hint)
+		p.end_turn_requested.connect(_on_end_turn_requested.bind(p))
+		p.moved.connect(func(a: Vector2i, b: Vector2i) -> void: _log_path.append([a, b]))
+		p.shot.connect(func(a: Vector2, b: Vector2) -> void: _log_shots.append([a, b]))
 		players.append(p)
 		_pending_bonus.append(0)
 		_pending_penalty.append(0)
@@ -128,6 +135,10 @@ func _start_turn() -> void:
 	var p := players[current]
 	hud.clear_ap()
 	hud.hint("")
+	if not _log_path.is_empty() or not _log_shots.is_empty():
+		board.ghost.show_turn(_log_path, _log_shots, _last_color)
+	_log_path.clear()
+	_log_shots.clear()
 
 	# Grenades thrown last turn go off now, fire burns out.
 	var exploded := false
@@ -152,6 +163,7 @@ func _start_turn() -> void:
 	if _turn_bonus > 0 or _turn_penalty > 0:
 		text += "   %d AP" % ap
 	hud.banner(text, p.color, 0.8)
+	Sfx.named("turn", 1.0, 0.0)
 	await get_tree().create_timer(0.35).timeout
 	await dice.dismiss([hud.ap_anchor(current)])
 	hud.set_ap(current, ap, _turn_base, _turn_bonus, _turn_penalty)
@@ -170,6 +182,7 @@ func _start_turn() -> void:
 func _on_action() -> void:
 	if phase != Phase.ACTIVE:
 		return
+	board.ghost.fade()
 	ap -= 1
 	hud.set_ap(current, ap, _turn_base, _turn_bonus, _turn_penalty)
 	_update_hint()
@@ -180,10 +193,22 @@ func _on_action() -> void:
 		_end_turn()
 
 
+func _on_end_turn_requested(p: Player) -> void:
+	if phase != Phase.ACTIVE or p != players[current]:
+		return
+	phase = Phase.ROLLING
+	p.set_controllable(false)
+	board.ghost.fade()
+	Fx.popup(board, p.position, "Pass (%d AP left)" % ap, Hud.CREAM)
+	await get_tree().create_timer(0.35).timeout
+	_end_turn()
+
+
 func _end_turn() -> void:
 	if phase == Phase.OVER:
 		return
 	players[current].set_controllable(false)
+	_last_color = players[current].color
 	_apply_special_cell()
 	var n := players.size()
 	for i in n:
@@ -237,6 +262,7 @@ func _update_hint() -> void:
 	if phase != Phase.ACTIVE:
 		return
 	var p := players[current]
+	hud.set_preview_cost(current, 1 if p.state == Player.State.AIMING else 0)
 	match p.state:
 		Player.State.AIMING:
 			hud.hint("AIMING %s  ·  arrows: direction  ·  Space: fire (1 AP)  ·  E: cancel" % Weapons.display_name(p.weapon).to_upper())
@@ -246,6 +272,7 @@ func _update_hint() -> void:
 			var s := "WASD: move / push (1 AP)  ·  Space: aim %s" % Weapons.display_name(p.weapon)
 			if p.has_shield:
 				s += "  ·  Q: turn shield"
+			s += "  ·  Enter: end turn"
 			hud.hint(s)
 
 

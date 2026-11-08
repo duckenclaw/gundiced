@@ -30,8 +30,10 @@ Open in Godot 4.7+ and press F5.
 1. **Roll**: the active player rolls a D6 for that many Action Points (AP). The
    die is drawn in the player's colour.
 2. **Intermission**: a "PLAYER N TURN" banner, then the die flies into your AP bar.
-3. **Active turn**: spend AP on actions until it reaches 0.
-4. **Hand-off**: control passes to the next player.
+3. **Active turn**: spend AP on actions until it reaches 0, or press **Enter** to
+   pass early. While you aim, the AP pip the shot will spend blinks.
+4. **Hand-off**: control passes to the next player. While they roll, the board
+   replays your turn in your colour: footprints along your path and your shot lines.
 
 ### Actions
 
@@ -39,12 +41,13 @@ Open in Godot 4.7+ and press F5.
 |---|---|---|
 | Move (1 cell) | 1 | Cardinal directions only. Failed moves cost nothing. |
 | Push a crate | 1 | Walking into a crate pushes it (and any chain behind it) one cell. |
-| Move through a door | 1 | The door swings 90° in the direction of motion. |
+| Push a door | 1 | Walking across the edge a door lies on swings it 90° around its hinge. |
 | Enter aim mode | 0 | Shows the shot line, the cell it hits and any blast area. |
 | Change aim direction | 0 | Movement keys rotate the aim (or move the throw target). |
 | Fire | 1 | Damage lands on the first thing in line. |
 | Turn your shield | 0 | Only if you carry one. |
 | Pick up | 0 | Step onto a pickup to take it. |
+| End turn | 0 | Forfeit the AP you have left. |
 
 ### Weapons
 
@@ -67,10 +70,13 @@ limited ammo; when it runs dry you fall back to the revolver.
 - **Crates**: 1 HP cover that blocks shots and can be pushed in chains. A push fails
   (and you stay put) if the back of the chain hits a wall, decor, a player, a door
   or the edge of the floor.
-- **Doors**: 1 HP, sit on the edge between two cells, rotation limited to ±90° from
-  closed. Each pass swings them 90°; a pass past the limit is refused. Closed doors
-  block shots on their edge; open doors lie across their two cells and catch shots
-  crossing them side-on.
+- **Doors**: 1 HP, one cell long, hinged on a grid corner. A door always lies on
+  exactly one cell edge and blocks only that edge, for movement and for shots.
+  Closed, it sits between its two cells. Walking across it pushes it a quarter turn
+  around the hinge in the direction you walk, so it ends up lying on the hinge-side
+  edge of the cell you entered and the doorway is clear. Pushing it again from
+  the far side swings it back closed; a push that would take it past ±90° from
+  closed is refused (and costs nothing). Crates can't be pushed through a door.
 - **Plates**: end your turn on a gold `+` plate for +2 AP next turn, or on a red `−`
   plate to drain 1 AP from the next player.
 
@@ -85,6 +91,7 @@ Last gunslinger standing wins.
 | `Space` / `Z` | Shoot (enter aim, then fire) |
 | `Q` / `X` | Turn shield |
 | `E` / `Backspace` | Cancel aim |
+| `Enter` / `F` | End turn |
 | `R` | Rematch (after a win) |
 | `Esc` | Back to menu |
 
@@ -100,7 +107,8 @@ it with the `layout` text field (it previews live in the editor):
 1 2  spawns    B  crate         b barrel  c cactus  r rock  h hay  t trough
 +  bonus plate   -  drain plate
 S sniper  R rpg  M molotov  G grenade  D shield
-|  door on this cell's LEFT edge     _  door on this cell's TOP edge
+|  door on this cell's LEFT edge, hinged at the top    !  same, hinged at the bottom
+_  door on this cell's TOP edge, hinged at the left    ~  same, hinged at the right
 ```
 
 Then add it to `Match.LEVELS` in [`src/match/match.gd`](src/match/match.gd).
@@ -114,6 +122,9 @@ Then add it to `Match.LEVELS` in [`src/match/match.gd`](src/match/match.gd).
 - `src/ui/`: main menu, HUD and the dice roll animation.
 - `src/fx/`: projectiles, particles, popups, screen shake, SFX routing.
 - `tests/test_gundiced.gd`: headless rule tests, run in CI.
+- `tools/synth_sfx.py`: regenerates the synthesized sound effects (`python3 tools/synth_sfx.py`).
+- `tools/pixelsnap.py`: snaps soft or AI-made pixel art onto its true pixel grid
+  (`python3 tools/pixelsnap.py in.png out.png [--key] [--scale 2]`).
 
 ```bash
 godot --headless --path . --import
@@ -122,6 +133,9 @@ godot --headless --path . --script tests/test_gundiced.gd
 
 ## Credits
 
-Character, weapon and SFX art carried over from the original *dice-gunmen*
-prototype. Tiles and props were generated with Higgsfield (GPT Image) using the
-characters as a style reference.
+Character, weapon art and the step/shot/pickup sounds come from the original
+*dice-gunmen* prototype. The characters were edited with Higgsfield (GPT Image) to
+empty their hands so the held weapon is drawn separately. Tiles and props were
+generated with Higgsfield using the characters as a style reference, and all
+sprites were snapped to their pixel grid with `tools/pixelsnap.py`. The other sound
+effects are synthesized by `tools/synth_sfx.py`.

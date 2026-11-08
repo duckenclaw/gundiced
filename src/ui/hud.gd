@@ -77,6 +77,12 @@ func set_ap(i: int, left: int, base: int, bonus: int, penalty: int) -> void:
 		_panels[j].set_ap(left, base, bonus, penalty, j == i)
 
 
+## Highlights the AP the current action would spend (e.g. 1 while aiming).
+func set_preview_cost(i: int, cost: int) -> void:
+	if i < _panels.size():
+		_panels[i].set_preview(cost)
+
+
 func clear_ap() -> void:
 	for p in _panels:
 		p.set_ap(0, 0, 0, 0, false)
@@ -140,6 +146,8 @@ class PlayerPanel extends Control:
 	var _bonus := 0
 	var _penalty := 0
 	var _active := false
+	var _preview := 0
+	var _t := 0.0
 
 	func _ready() -> void:
 		mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -150,6 +158,16 @@ class PlayerPanel extends Control:
 
 	func refresh() -> void:
 		queue_redraw()
+
+	func set_preview(cost: int) -> void:
+		if cost != _preview:
+			_preview = cost
+			queue_redraw()
+
+	func _process(delta: float) -> void:
+		if _preview > 0 and _active:
+			_t += delta
+			queue_redraw()
 
 	func set_ap(left: int, base: int, bonus: int, penalty: int, active: bool) -> void:
 		_ap_left = left
@@ -209,7 +227,13 @@ class PlayerPanel extends Control:
 			if n <= _ap_left:
 				var fill := col if n <= normal else Hud.GOLD
 				draw_circle(c, 8, Hud.INK)
-				draw_circle(c, 6.5, fill.lightened(0.15))
+				if n > _ap_left - _preview:
+					# The pip this action will spend: blinks between full and hollow.
+					var blink := 0.5 + 0.5 * sin(_t * 10.0)
+					draw_circle(c, 6.5, Color(fill.lightened(0.15), 0.25 + 0.5 * blink))
+					draw_arc(c, 10.5, 0, TAU, 20, Hud.CREAM, 2.0)
+				else:
+					draw_circle(c, 6.5, fill.lightened(0.15))
 			elif n > active_total:
 				draw_circle(c, 8, Hud.INK)
 				draw_line(c + Vector2(-5, -5), c + Vector2(5, 5), Hud.RED, 3)

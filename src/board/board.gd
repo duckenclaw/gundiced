@@ -12,8 +12,12 @@ extends Node2D
 ##   B  crate             b barrel  c cactus  r rock  h hay  t trough
 ##   +  bonus plate (+2 AP next turn)   -  drain plate (-1 AP for next player)
 ##   S sniper  R rpg  M molotov  G grenade  D shield   (pickups)
-##   |  floor cell with a door on its LEFT edge
-##   _  floor cell with a door on its TOP edge
+##   |  floor cell with a door on its LEFT edge, hinged at the top end
+##   !  same, hinged at the bottom end
+##   _  floor cell with a door on its TOP edge, hinged at the left end
+##   ~  same, hinged at the right end
+## Doors block only the edge they lie on and swing a quarter turn around the
+## hinge corner when pushed (see Door).
 ## Props, pickups, plates, spawns and doors stand on `default_floor`.
 
 const TILE_PLANKS := preload("res://assets/tiles/floor_planks.png")
@@ -48,6 +52,7 @@ var wall_layer: TileMapLayer
 var props: Node2D  ## y-sorted: crates, obstacles, players, doors
 var ground: Node2D  ## under props: plates, pickups, hazards
 var overlay: Node2D  ## aim preview, drawn above props
+var ghost: TurnGhost  ## replay of the previous player's turn
 var spawns: Array[Vector2i] = []
 var _walls := {}
 var _floors := {}
@@ -85,6 +90,9 @@ func _build() -> void:
 	ground = Node2D.new()
 	ground.name = "Ground"
 	add_child(ground)
+	ghost = TurnGhost.new()
+	ghost.name = "TurnGhost"
+	add_child(ghost)
 	wall_layer = TileMapLayer.new()
 	wall_layer.name = "Walls"
 	wall_layer.tile_set = ts
@@ -149,9 +157,9 @@ func _build_cell(c: Vector2i, ch: String, spawn_map: Dictionary) -> void:
 		s.effect = SpecialCell.Effect.AP_BONUS if ch == "+" else SpecialCell.Effect.AP_DRAIN
 		s.place(c)
 		ground.add_child(s)
-	elif ch == "|" or ch == "_":
+	elif ch in ["|", "!", "_", "~"]:
 		var d := Door.new()
-		d.setup(c, ch == "|")
+		d.setup(c, ch == "|" or ch == "!", ch == "!" or ch == "~")
 		props.add_child(d)
 	else:
 		push_warning("Board '%s': unknown layout char '%s' at %s" % [level_name, ch, c])
@@ -230,7 +238,8 @@ func door_between(a: Vector2i, b: Vector2i) -> Door:
 func doors_touching(cells: Array) -> Array:
 	var out := []
 	for d in get_tree().get_nodes_in_group("door"):
-		if d.cell_a in cells or d.cell_b in cells:
+		var e: Array[Vector2i] = d.edge()
+		if e[0] in cells or e[1] in cells:
 			out.append(d)
 	return out
 
@@ -291,7 +300,7 @@ func trace(from: Vector2i, dir: Vector2i, pierce := false, max_cells := 40) -> D
 	for i in max_cells:
 		var next := cell + dir
 		var door := door_between(cell, next)
-		if door and not door.is_open():
+		if door:
 			hits.append(door)
 			if not pierce:
 				stop = door
@@ -299,15 +308,6 @@ func trace(from: Vector2i, dir: Vector2i, pierce := false, max_cells := 40) -> D
 				break
 		if not is_floor(next):
 			blast = cell
-			break
-		for d in get_tree().get_nodes_in_group("door"):
-			if d != door and d not in hits and d.blocks_shot_in(next, dir):
-				hits.append(d)
-				if not pierce:
-					stop = d
-		if stop:
-			blast = next
-			cell = next
 			break
 		var o := occupant_at(next)
 		cell = next
@@ -327,8 +327,8 @@ func impact_point(from: Vector2i, dir: Vector2i, result: Dictionary) -> Vector2:
 	var end: Vector2i = result["end"]
 	var stop: Node = result["stop"]
 	var p := Grid.to_world(end)
-	if stop == null or stop is Door and not stop.is_open():
-		p += Vector2(dir) * Grid.CELL * 0.5  # wall face / closed door on the edge
+	if stop == null or stop is Door:
+		p += Vector2(dir) * Grid.CELL * 0.5  # wall face / door on the edge
 	if from == end and stop == null:
 		p = Grid.to_world(from) + Vector2(dir) * Grid.CELL * 0.5
 	return p
@@ -342,6 +342,7 @@ func explode(center: Vector2i, center_dir: Vector2i) -> void:
 		if is_floor(c):
 			Fx.explosion(ground, Grid.to_world(c))
 	Fx.shake(self, 14.0)
+	Sfx.named("explosion", 1.0, 0.08)
 	for d in doors_touching(cells):
 		d.take_hit(Vector2i.ZERO)
 	for c in cells:

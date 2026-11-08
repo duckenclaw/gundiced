@@ -6,8 +6,6 @@ extends Control
 ##   await dice.roll([4], [p1_color], ["P1"])
 ##   await dice.dismiss([hud_ap_position])
 
-const SFX_TICK := preload("res://assets/sfx/step.wav")
-const SFX_LAND := preload("res://assets/sfx/ready-shot.wav")
 const SPACING := 170.0
 const TUMBLE_TIME := 0.85
 
@@ -49,7 +47,7 @@ func roll(values: Array, colors: Array, labels: Array = []) -> void:
 		for d in _dice:
 			d.face = _other_face(d.face)
 			d.queue_redraw()
-		Sfx.play(SFX_TICK, randf_range(1.6, 2.0))
+		Sfx.named("dice_tick", 1.0, 0.15)
 
 	for i in n:
 		var d := _dice[i]
@@ -61,7 +59,7 @@ func roll(values: Array, colors: Array, labels: Array = []) -> void:
 		t.tween_property(d, "scale", Vector2.ONE, 0.25).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
 		t.parallel().tween_property(d, "rotation", 0.0, 0.2)
 		d.flash()
-	Sfx.play(SFX_LAND, 1.2)
+	Sfx.named("dice_land")
 	await get_tree().create_timer(0.45).timeout
 
 

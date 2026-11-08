@@ -45,4 +45,5 @@ func _on_died() -> void:
 	remove_from_group("occupant")
 	remove_from_group("crate")
 	Fx.debris(get_parent(), position, Color(0.62, 0.42, 0.22))
+	Sfx.named("crate_break")
 	queue_free()

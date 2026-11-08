@@ -104,21 +104,40 @@ func _test_push() -> void:
 
 
 func _test_doors() -> void:
-	var b := await _board("#####\n#.|.#\n#####")
+	# Door on the left edge of (2,2), hinged at its top end (corner between rows 1 and 2).
+	var b := await _board("#####\n#...#\n#.|.#\n#####")
 	var d: Door = b.get_tree().get_nodes_in_group("door")[0]
-	check(d.cell_a == Vector2i(1, 1) and d.cell_b == Vector2i(2, 1), "door spans the right edge")
-	var p := _player(b, Vector2i(1, 1))
-	var res := b.trace(Vector2i(1, 1), Vector2i.RIGHT)
-	check(res["stop"] == d, "closed door stops shots")
-	check(await p.try_move(Vector2i.RIGHT), "walk through door")
-	check(d.rotation_state == 90, "door swung +90")
-	check(await p.try_move(Vector2i.RIGHT) and p.cell == Vector2i(3, 1), "walk on")
-	check(await p.try_move(Vector2i.LEFT) and await p.try_move(Vector2i.LEFT), "walk back through (closes it)")
-	check(d.rotation_state == 0, "door back to closed")
-	check(await p.try_move(Vector2i.RIGHT), "through again")
+	check(d.cell_a == Vector2i(1, 2) and d.cell_b == Vector2i(2, 2), "door spans the right edge")
+	check(d.position == Vector2(128, 128), "door pivots on the hinge corner")
+	check(b.door_between(Vector2i(1, 1), Vector2i(2, 1)) == null, "closed door leaves the edge above it free")
+	var p := _player(b, Vector2i(1, 2))
+	check(b.trace(Vector2i(1, 2), Vector2i.RIGHT)["stop"] == d, "closed door stops shots across its edge")
+	check(await p.try_move(Vector2i.RIGHT), "push the door open walking right")
+	check(d.rotation_state == 90, "door swung a quarter turn into cell_b")
+	check(d.spans(Vector2i(2, 2), Vector2i(2, 1)), "open door now lies on cell_b's top edge")
+	check(b.door_between(Vector2i(1, 2), Vector2i(2, 2)) == null, "doorway edge is free once open")
+	check(b.trace(Vector2i(1, 2), Vector2i.RIGHT)["stop"] == p, "shots pass the open doorway (and hit whoever stands in it)")
+	check(b.trace(Vector2i(2, 1), Vector2i.DOWN)["stop"] == d, "open door blocks shots across its new edge")
+	check(not await p.try_move(Vector2i.UP), "can't push the door past +90")
+	check(d.rotation_state == 90 and p.cell == Vector2i(2, 2), "refused push changes nothing")
 	await p.try_move(Vector2i.RIGHT)
-	check(not await p.try_move(Vector2i.LEFT) or d.rotation_state <= 90, "door never exceeds its limit")
+	await p.try_move(Vector2i.UP)
+	await p.try_move(Vector2i.LEFT)
+	check(p.cell == Vector2i(2, 1), "walked around to the far side")
+	check(await p.try_move(Vector2i.DOWN), "push the door back from above")
+	check(d.rotation_state == 0 and d.spans(Vector2i(1, 2), Vector2i(2, 2)), "door swung back closed")
 	await _done(b)
+
+	# Opening the other way, and a door hinged at its far end.
+	var b2 := await _board("#####\n#...#\n#.!.#\n#...#\n#####")
+	var d2: Door = b2.get_tree().get_nodes_in_group("door")[0]
+	check(d2.position == Vector2(128, 192), "'!' door hinges at the bottom end")
+	var q := _player(b2, Vector2i(3, 2))
+	await q.try_move(Vector2i.LEFT)
+	await q.try_move(Vector2i.LEFT)
+	check(d2.rotation_state == -90 and d2.spans(Vector2i(1, 2), Vector2i(1, 3)), "swung into cell_a, onto its bottom edge")
+	check(not await q.try_move(Vector2i.DOWN), "blocked by the swung door")
+	await _done(b2)
 
 
 func _test_revolver_and_shield() -> void:
@@ -257,5 +276,12 @@ func _test_match_turn() -> void:
 			break
 	await _wait(0.05)
 	check(m.ap == before - 1 or m.current != p.index, "a move spends one AP")
+	if m.phase == Match.Phase.ACTIVE and m.current == p.index:
+		var who := m.current
+		p.end_turn_requested.emit()
+		await _wait(0.6)
+		check(m.current != who, "end-turn key passes to the next player")
+		check(not p.controllable, "passing removes control")
+		check(not m.board.ghost._path.is_empty(), "next turn shows the previous player's path")
 	m.queue_free()
 	await process_frame

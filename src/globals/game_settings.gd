@@ -7,7 +7,7 @@ extends SettingsManager
 
 const REBINDABLE: Array[String] = [
 	"move_up", "move_down", "move_left", "move_right",
-	"shoot", "shield", "cancel", "rematch",
+	"shoot", "shield", "cancel", "end_turn", "rematch",
 ]
 
 

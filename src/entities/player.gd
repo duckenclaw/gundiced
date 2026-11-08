@@ -7,13 +7,12 @@ extends Node2D
 signal action_performed
 signal died(player: Player)
 signal changed  ## weapon, ammo or shield changed (HUD refresh)
+signal end_turn_requested
+signal moved(from: Vector2i, to: Vector2i)
+signal shot(from: Vector2, to: Vector2)
 
 enum State { IDLE, BUSY, AIMING, SHIELD_AIM, DEAD }
 
-const SFX_STEP := preload("res://assets/sfx/step.wav")
-const SFX_READY := preload("res://assets/sfx/ready-shot.wav")
-const SFX_SHOT := preload("res://assets/sfx/shot.wav")
-const SFX_PICKUP := preload("res://assets/sfx/pickup.wav")
 const BODY_PX := 80.0
 const BODY_Y := -14.0
 const MOVE_TIME := 0.13
@@ -23,6 +22,8 @@ const MOVE_TIME := 0.13
 @export var texture: Texture2D
 ## True if the art faces left by default (player2 holds the gun on the left).
 @export var art_faces_left := false
+## Where the empty hand is on the texture (0..1 UV), so the held weapon sits in it.
+@export var hand_uv := Vector2(0.92, 0.6)
 
 var board: Board
 var cell: Vector2i
@@ -122,6 +123,9 @@ func _pressed_dir() -> Vector2i:
 
 
 func _idle_input() -> void:
+	if Input.is_action_just_pressed("end_turn"):
+		end_turn_requested.emit()
+		return
 	if Input.is_action_just_pressed("shoot"):
 		enter_aim()
 		return
@@ -152,7 +156,7 @@ func _shield_input() -> void:
 	var d := _pressed_dir()
 	if d != Vector2i.ZERO:
 		shield_dir = d
-		Sfx.play(SFX_STEP, 1.6)
+		Sfx.named("step", 1.6)
 		_refresh_visuals()
 		board.overlay.show_shield(position, shield_dir, color)
 
@@ -180,9 +184,10 @@ func try_move(dir: Vector2i) -> bool:
 	if o is Crate:
 		board.push(o, dir)
 	_face(dir)
+	moved.emit(cell, to)
 	cell = to
 	state = State.BUSY
-	Sfx.play(SFX_STEP, randf_range(0.9, 1.1))
+	Sfx.named("step", 1.0, 0.1)
 	_tilt = -_tilt
 	if _anim:
 		_anim.kill()
@@ -214,7 +219,7 @@ func _bump(dir: Vector2i) -> void:
 	_anim = create_tween()
 	_anim.tween_property(_body, "position", Vector2(dir) * 6.0 + Vector2(0, BODY_Y), 0.05)
 	_anim.tween_property(_body, "position", Vector2(0, BODY_Y), 0.08)
-	Sfx.play(SFX_STEP, 0.6)
+	Sfx.named("bump")
 
 
 func _face(dir: Vector2i) -> void:
@@ -232,7 +237,7 @@ func _collect(p: Pickup) -> void:
 		weapon = p.kind
 		ammo = Weapons.ammo(p.kind)
 	Fx.popup(board, position, "+" + p.label(), Color(1, 0.9, 0.4))
-	Sfx.play(SFX_PICKUP)
+	Sfx.named("pickup")
 	p.collect()
 	_refresh_visuals()
 	changed.emit()
@@ -242,7 +247,7 @@ func _collect(p: Pickup) -> void:
 
 func enter_aim() -> void:
 	state = State.AIMING
-	Sfx.play(SFX_READY)
+	Sfx.named("ready")
 	if Weapons.is_thrown(weapon):
 		_throw_dir = facing
 		var first := cell + facing
@@ -299,21 +304,27 @@ func _update_preview() -> void:
 		aoe = Grid.cross(res["blast"])
 	elif weapon == Weapons.Kind.SNIPER:
 		for h in res["hits"]:
-			targets.append(_cell_of(h))
+			targets.append(_cell_of(h, res))
 	elif res["stop"] != null:
-		targets.append(_cell_of(res["stop"]))
+		targets.append(_cell_of(res["stop"], res))
 	board.overlay.show_aim(origin, to, targets, aoe, color)
 
 
-func _cell_of(n: Node) -> Vector2i:
+func _cell_of(n: Node, res: Dictionary) -> Vector2i:
 	if n is Door:
-		# Highlight the door's cell on the far side of the shooter.
-		return n.cell_a if n.cell_b == cell or (n.cell_b - cell).length_squared() < (n.cell_a - cell).length_squared() else n.cell_b
+		# Highlight the cell just past the door's edge.
+		var e: Array[Vector2i] = n.edge()
+		var near: Vector2i = res["end"]
+		return e[1] if e[0] == near else e[0]
 	return n.cell
 
 
 func _muzzle() -> Vector2:
-	return position + Vector2(0, BODY_Y)
+	if Weapons.is_thrown(weapon):
+		return position + _hand_pos()
+	if _aim_dir.y != 0:
+		return position + Vector2(0, BODY_Y) + Vector2(_aim_dir) * 44.0
+	return position + _hand_pos() + Vector2(_aim_dir) * 24.0
 
 
 func _exit_aim() -> void:
@@ -329,9 +340,18 @@ func fire() -> void:
 	var origin := _muzzle()
 	var dir := _aim_dir
 	var fdir := Vector2(dir)
-	Sfx.play(SFX_SHOT, 1.0 if weapon == Weapons.Kind.REVOLVER else (0.7 if weapon == Weapons.Kind.SNIPER else 0.85))
-	Fx.muzzle(board, origin + fdir * 30.0, fdir)
+	match weapon:
+		Weapons.Kind.REVOLVER: Sfx.named("revolver")
+		Weapons.Kind.SNIPER: Sfx.named("sniper")
+		Weapons.Kind.RPG: Sfx.named("rpg")
+		_: Sfx.named("throw")
+	Fx.muzzle(board, origin + fdir * 26.0, fdir)
 	_recoil(fdir)
+	if Weapons.is_thrown(weapon):
+		shot.emit(origin, Grid.to_world(_throw_cell))
+	else:
+		var preview := board.trace(cell, dir, weapon == Weapons.Kind.SNIPER)
+		shot.emit(origin, board.impact_point(cell, dir, preview))
 	match weapon:
 		Weapons.Kind.REVOLVER:
 			var res := board.trace(cell, dir)
@@ -355,6 +375,7 @@ func fire() -> void:
 		Weapons.Kind.MOLOTOV, Weapons.Kind.GRENADE:
 			var kind := weapon
 			await Fx.lob(board, Weapons.texture(kind), origin, Grid.to_world(_throw_cell))
+			Sfx.named("molotov" if kind == Weapons.Kind.MOLOTOV else "bump", 1.0 if kind == Weapons.Kind.MOLOTOV else 1.8)
 			_spawn_hazard(kind)
 
 	if ammo > 0:
@@ -390,6 +411,12 @@ func _recoil(fdir: Vector2) -> void:
 	var t := create_tween()
 	t.tween_property(_body, "position", Vector2(0, BODY_Y) - fdir * 6.0, 0.04)
 	t.tween_property(_body, "position", Vector2(0, BODY_Y), 0.12)
+	var w := create_tween()
+	var base := _weapon_sprite.position
+	w.tween_property(_weapon_sprite, "position", base - fdir * 10.0, 0.04)
+	w.parallel().tween_property(_weapon_sprite, "rotation", _weapon_sprite.rotation - 0.35 * (1.0 if not _weapon_sprite.flip_h else -1.0), 0.04)
+	w.tween_property(_weapon_sprite, "position", base, 0.14)
+	w.parallel().tween_property(_weapon_sprite, "rotation", _weapon_sprite.rotation, 0.14)
 
 
 # --- Shield --------------------------------------------------------------------
@@ -399,7 +426,7 @@ func enter_shield_aim() -> void:
 		Fx.popup(board, position, "No shield", Color(0.8, 0.8, 0.8))
 		return
 	state = State.SHIELD_AIM
-	Sfx.play(SFX_READY, 1.3)
+	Sfx.named("ready", 1.3)
 	board.overlay.show_shield(position, shield_dir, color)
 
 
@@ -412,6 +439,7 @@ func take_hit(dir: Vector2i) -> void:
 		return
 	if has_shield and dir != Vector2i.ZERO and shield_dir == -dir:
 		has_shield = false
+		Sfx.named("shield_block")
 		Fx.popup(board, position, "BLOCKED!", Color(0.7, 0.9, 1.0))
 		Fx.debris(board, position + Vector2(shield_dir) * 24.0, Color(0.6, 0.65, 0.75))
 		_refresh_visuals()
@@ -444,31 +472,44 @@ func _die() -> void:
 
 # --- Visuals -------------------------------------------------------------------
 
+## Hand position in player-local space for the current facing.
+func _hand_pos() -> Vector2:
+	var size := texture.get_size()
+	var local := Vector2((hand_uv.x - 0.5) * size.x, (hand_uv.y - 0.5) * size.y) * _body.scale
+	if _body.flip_h:
+		local.x = -local.x
+	return _body.position + local
+
+
 func _refresh_visuals() -> void:
 	if _body == null:
 		return
 	if facing.x != 0:
 		_body.flip_h = (facing.x < 0) != art_faces_left
-	# Held weapon: orbits in the aim direction while aiming, otherwise a small
-	# badge over the head for anything better than the revolver.
+	# The art has empty hands; the held weapon is drawn in the hand, and swings
+	# up/down with the aim for vertical shots.
 	var tex := Weapons.texture(weapon)
 	_weapon_sprite.texture = tex
+	_weapon_sprite.visible = not is_dead()
 	var longest := maxf(tex.get_width(), tex.get_height())
-	if state == State.AIMING:
-		var k := 46.0 / longest
-		_weapon_sprite.visible = true
+	var hand := _hand_pos()
+	var side := -1.0 if _body.flip_h != art_faces_left else 1.0  # which way the body faces
+	if state == State.AIMING and _aim_dir.y != 0:
+		var k := 42.0 / longest
 		_weapon_sprite.scale = Vector2(k, k)
-		_weapon_sprite.position = Vector2(0, BODY_Y) + Vector2(_aim_dir) * 40.0
+		_weapon_sprite.position = Vector2(hand.x * 0.4, BODY_Y) + Vector2(_aim_dir) * 34.0
 		_weapon_sprite.rotation = Vector2(_aim_dir).angle()
-		_weapon_sprite.flip_v = _aim_dir.x < 0
-		_weapon_sprite.z_index = 1 if _aim_dir != Vector2i.UP else -1
+		_weapon_sprite.flip_h = false
+		_weapon_sprite.flip_v = side < 0
+		_weapon_sprite.z_index = -1 if _aim_dir == Vector2i.UP else 1
 	else:
-		var k := 30.0 / longest
-		_weapon_sprite.visible = weapon != Weapons.Kind.REVOLVER
+		var k := (42.0 if state == State.AIMING else 32.0) / longest
 		_weapon_sprite.scale = Vector2(k, k)
-		_weapon_sprite.position = Vector2(0, BODY_Y - BODY_PX * 0.5 - 14.0)
+		# Grip roughly at the gun's back third, so the barrel sticks out of the fist.
+		_weapon_sprite.position = hand + Vector2(side * 42.0 * 0.22, -4.0)
 		_weapon_sprite.rotation = 0.0
 		_weapon_sprite.flip_v = false
+		_weapon_sprite.flip_h = side < 0
 		_weapon_sprite.z_index = 1
 	_shield_sprite.visible = has_shield and not is_dead()
 	if has_shield:
