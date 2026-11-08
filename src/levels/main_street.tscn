@@ -1,0 +1,19 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://src/board/board.gd" id="1_board"]
+
+[node name="MainStreet" type="Node2D"]
+script = ExtResource("1_board")
+level_name = "Main Street"
+default_floor = 1
+layout = "####################
+#1,,,,,,c,,,,,,,,,t#
+#,,,B,,,,,,B,,r,,,,#
+#,,,B,,b,,,,,,,,B,,#
+#c,,,,,,,,M,,h,,B,D#
+#,+,,r,,,,,,,,r,,+,#
+#D,B,,h,,M,,,,,,,,c#
+#,,B,,,,,,,,b,,B,,,#
+#,,,,r,,B,,,,,,B,,,#
+#t,,,,,,,,,c,,,,,,2#
+####################"

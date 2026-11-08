@@ -1,0 +1,12 @@
+[submodule "addons/core"]
+	path = addons/core
+	url = https://github.com/duckenclaw/godot-core.git
+	ignore = untracked
+[submodule "addons/settings_kit"]
+	path = addons/settings_kit
+	url = https://github.com/duckenclaw/godot-settings-kit.git
+	ignore = untracked
+[submodule "addons/components_kit"]
+	path = addons/components_kit
+	url = https://github.com/duckenclaw/godot-components-kit.git
+	ignore = untracked

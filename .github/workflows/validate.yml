@@ -1,0 +1,12 @@
+name: validate
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - uses: chickensoft-games/setup-godot@v2
+        with: { version: 4.7.2, use-dotnet: false }
+      - run: godot --headless --path . --import || true
+      - run: godot --headless --path . --script tests/test_gundiced.gd

@@ -1,0 +1,5 @@
+* text=auto eol=lf
+*.gd linguist-language=GDScript text
+*.tscn text
+*.tres text
+*.cfg text
