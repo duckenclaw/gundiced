@@ -2,3 +2,4 @@
 _ci/
 .DS_Store
 *.tmp
+builds/
